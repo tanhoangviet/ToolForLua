@@ -119,11 +119,11 @@ local Ex   = tpx.Ex      -- extended utilities
 
 ```lua
 -- Core
-local tp = loadstring(game:HttpGet("https://raw.githubusercontent.com/YOUR/REPO/main/TopbarPlus_bundled_fixed.lua"))()
+local tp = loadstring(game:HttpGet("https://raw.githubusercontent.com/tanhoangviet/ToolForLua/refs/heads/main/TopbarPlus.lua"))()
 local Icon = tp.get()
 
 -- Extended
-local tpx = loadstring(game:HttpGet("https://raw.githubusercontent.com/YOUR/REPO/main/TopbarPlus_Extended.lua"))()
+local tpx = loadstring(game:HttpGet("https://raw.githubusercontent.com/tanhoangviet/ToolForLua/refs/heads/main/TopbarPlus_Extended.lua"))()
 local Icon = tpx.Icon
 local Ex   = tpx.Ex
 ```
