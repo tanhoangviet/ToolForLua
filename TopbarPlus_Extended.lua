@@ -1,13 +1,3 @@
---[[
-    TopbarPlus Extended v1.1
-    Nâng cấp TopbarPlus với:
-      - Watermark icon (non-interactive, decorative)
-      - Highlight (border / glow / premium / accent style)
-      - Menu + Dropdown combo (menu ngang chứa dropdown dọc)
-      - Auto-dodge / override native topbar buttons
-      - Separator (khoảng cách giữa icons)
-      - Theme Presets (data only)
-]]
 
 local _bundle = loadstring(readfile("TopbarPlus_bundled_fixed.lua"))()
 local Icon    = _bundle.get()
