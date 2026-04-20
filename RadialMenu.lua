@@ -375,5 +375,3 @@ function RadialMenu:Destroy()
 	self.Hover = nil
 	self.Frame = nil
 end
-
-return RadialMenu
