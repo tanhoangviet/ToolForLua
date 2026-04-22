@@ -1,5 +1,4 @@
-
-local _bundle = loadstring(readfile("TopbarPlus_bundled_fixed.lua"))()
+loadstring(game:HttpGet("https://raw.githubusercontent.com/tanhoangviet/ToolForLua/refs/heads/main/TopbarPlus.lua"))()
 local Icon    = _bundle.get()
 assert(Icon, "[TopbarPlusEx] Failed to load TopbarPlus bundle!")
 
