@@ -1,220 +1,167 @@
 --[[
-    TopbarPlus Extended v1.3
-    Fix: background icon bị mất — giờ có dark bg mặc định
-    Thêm: inner button glow, image background, style đẹp hơn
+╔══════════════════════════════════════════════════════════╗
+║         TopbarPlus Extended v1.4 — Executor Build        ║
+║  Core source: TopbarPlus.lua (bundled from same repo)    ║
+║  Fixes: {fps} placeholder in format fn, clean style      ║
+╚══════════════════════════════════════════════════════════╝
+
+USAGE:
+    local tpx  = loadstring(game:HttpGet("https://raw.githubusercontent.com/tanhoangviet/ToolForLua/refs/heads/main/TopbarPlus_Extended.lua"))()
+    local Icon = tpx.Icon
+    local Ex   = tpx.Ex
+    local Pre  = tpx.Presets
 ]]
 
-local BASE_URL = "https://raw.githubusercontent.com/tanhoangviet/ToolForLua/refs/heads/main/TopbarPlus.lua"
-local tp   = loadstring(game:HttpGet(BASE_URL))()
-local Icon = tp.get()
-assert(Icon, "[TopbarPlusEx] Failed to load TopbarPlus!")
+-- ─────────────────────────────────────────────────────────────
+-- LOAD CORE (bundled from same repo — no separate load needed)
+-- ─────────────────────────────────────────────────────────────
+local _CORE_URL = "https://raw.githubusercontent.com/tanhoangviet/ToolForLua/refs/heads/main/TopbarPlus.lua"
 
-local TweenService = game:GetService("TweenService")
-local RunService   = game:GetService("RunService")
+local _ok, _result = pcall(function()
+    return loadstring(game:HttpGet(_CORE_URL))()
+end)
+
+if not _ok or not _result then
+    error("[TopbarPlus Extended] Failed to load Core from: " .. _CORE_URL .. "\nError: " .. tostring(_result))
+end
+
+local Icon = _result.get()
+assert(Icon, "[TopbarPlus Extended] tp.get() returned nil — core bundle may be broken")
 
 -- ─────────────────────────────────────────────────────────────
--- DEFAULT STYLE — áp dụng ngay khi load
--- Fix lỗi background bị transparent
+-- SERVICES
+-- ─────────────────────────────────────────────────────────────
+local RunService   = game:GetService("RunService")
+local Players      = game:GetService("Players")
+local Stats        = game:GetService("Stats")
+local StarterGui   = game:GetService("StarterGui")
+local LocalPlayer  = Players.LocalPlayer
+
+-- ─────────────────────────────────────────────────────────────
+-- DEFAULT BASE THEME — áp ngay khi load Extended
+-- Đảm bảo tất cả icons đều có background
 -- ─────────────────────────────────────────────────────────────
 Icon.modifyBaseTheme({
-    {"Widget",      "BackgroundColor3",       Color3.fromRGB(15, 15, 18)},
-    {"Widget",      "BackgroundTransparency", 0.15},   -- hơi trong, không đặc hoàn toàn
+    {"Widget",      "BackgroundColor3",       Color3.fromRGB(14, 14, 18)},
+    {"Widget",      "BackgroundTransparency", 0.12},
     {"IconCorners", "CornerRadius",           UDim.new(0, 10)},
     {"IconGradient","Enabled",                false},
-    {"IconLabel",   "TextColor3",             Color3.fromRGB(230, 230, 230)},
+    {"IconLabel",   "TextColor3",             Color3.fromRGB(228, 228, 228)},
     {"IconLabel",   "TextSize",               14},
 })
 
 -- ─────────────────────────────────────────────────────────────
 -- INTERNAL HELPERS
 -- ─────────────────────────────────────────────────────────────
-local function getButton(icon)
+local function _getBtn(icon)
     local w = icon.widget
     return w and w:FindFirstChild("IconButton", true)
 end
 
-local function getWidget(icon)
-    return icon.widget
-end
+-- Shared FPS sampler — single RenderStepped for whole module
+local _fps = 60
+RunService.RenderStepped:Connect(function(dt)
+    _fps = math.floor(0.9 * _fps + 0.1 * (1 / dt))
+end)
 
--- Tạo inner background frame (nút nhỏ sáng hơn bên trong)
-local function makeInnerBg(parent, config)
-    config = config or {}
-    local color  = config.color  or Color3.fromRGB(40, 40, 50)
-    local alpha  = config.alpha  or 0.35
-    local radius = config.radius or 8
-    local pad    = config.pad    or 4
+-- Ping sampler
+local _ping = 0
+task.spawn(function()
+    while true do
+        task.wait(2)
+        local ok, v = pcall(function()
+            return Stats.Network.ServerStatsItem["Data Ping"]:GetValue()
+        end)
+        if ok then _ping = math.floor(v) end
+    end
+end)
 
-    local frame = Instance.new("Frame")
-    frame.Name                  = "InnerBg"
-    frame.BackgroundColor3      = color
-    frame.BackgroundTransparency = alpha
-    frame.BorderSizePixel       = 0
-    frame.ZIndex                = parent.ZIndex + 1
-    frame.AnchorPoint           = Vector2.new(0.5, 0.5)
-    frame.Position              = UDim2.new(0.5, 0, 0.5, 0)
-    frame.Size                  = UDim2.new(1, -pad * 2, 1, -pad * 2)
-
-    local corner = Instance.new("UICorner")
-    corner.CornerRadius = UDim.new(0, radius)
-    corner.Parent = frame
-
-    -- Subtle gradient inside
-    local grad = Instance.new("UIGradient")
-    grad.Color = ColorSequence.new({
-        ColorSequenceKeypoint.new(0,   Color3.fromRGB(70, 70, 85)),
-        ColorSequenceKeypoint.new(1,   Color3.fromRGB(20, 20, 28)),
-    })
-    grad.Rotation = 90
-    grad.Transparency = NumberSequence.new({
-        NumberSequenceKeypoint.new(0, 0.5),
-        NumberSequenceKeypoint.new(1, 0.7),
-    })
-    grad.Parent = frame
-
-    frame.Parent = parent
-    return frame
-end
-
--- Tạo image background (ảnh mờ phía sau)
-local function makeImageBg(parent, imageId, alpha)
-    alpha = alpha or 0.75
-    local img = Instance.new("ImageLabel")
-    img.Name                   = "BgImage"
-    img.BackgroundTransparency = 1
-    img.Image                  = type(imageId) == "number"
-        and ("rbxassetid://" .. tostring(imageId))
-        or tostring(imageId)
-    img.ImageTransparency      = alpha
-    img.ScaleType              = Enum.ScaleType.Crop
-    img.Size                   = UDim2.new(1, 0, 1, 0)
-    img.ZIndex                 = parent.ZIndex
-    img.AnchorPoint            = Vector2.new(0.5, 0.5)
-    img.Position               = UDim2.new(0.5, 0, 0.5, 0)
-
-    local corner = Instance.new("UICorner")
-    corner.CornerRadius = UDim.new(0, 10)
-    corner.Parent = img
-
-    img.Parent = parent
-    return img
+-- Resolve placeholders in a string
+local function _resolve(str)
+    if not str then return "" end
+    str = str:gsub("{fps}",    tostring(_fps))
+    str = str:gsub("{ping}",   tostring(_ping))
+    str = str:gsub("{time}",   os.date("%H:%M:%S"))
+    str = str:gsub("{player}", LocalPlayer.Name)
+    return str
 end
 
 -- ─────────────────────────────────────────────────────────────
 local Ex = {}
 
 -- ═══════════════════════════════════════════════════════════
--- [1] applyStyle — Style đẹp cho bất kỳ icon nào
+-- [1] WATERMARK
 -- ═══════════════════════════════════════════════════════════
 --[[
-    Ex.applyStyle(icon, config?)
-
-    Áp dụng visual style đẹp: outer bg tối + inner bg sáng hơn
-    + optional image background.
+    Ex.watermark(config) → WatermarkObject
 
     config = {
-        outerColor  : Color3?   — màu outer bg (default đen tối)
-        outerAlpha  : number?   — transparency outer (default 0.15)
-        innerColor  : Color3?   — màu inner bg (default xám tối)
-        innerAlpha  : number?   — transparency inner (default 0.35)
-        innerPad    : number?   — padding inner so với outer (default 4)
-        innerRadius : number?   — bo góc inner (default 8)
-        bgImage     : number?   — asset ID ảnh nền (optional)
-        bgAlpha     : number?   — transparency ảnh nền (default 0.75)
-        radius      : number?   — bo góc outer (default 10)
+        text     : string?    -- static text hoặc có {fps}/{time}/{ping}/{player}
+        format   : function?  -- function() return string end (ưu tiên hơn text)
+        imageId  : number?    -- asset ID ảnh kèm theo
+        align    : string?    -- "Left"|"Center"|"Right" (default "Right")
+        color    : Color3?    -- màu chữ
+        size     : number?    -- font size (default 13)
+        realtime : bool?      -- tự cập nhật (default false)
+        interval : number?    -- giây giữa update (default 1)
+        bg       : bool?      -- có background nhẹ không (default false = trong suốt)
     }
 
-    Returns: icon (chainable)
+    WatermarkObject = {
+        icon      : Icon         -- icon gốc (full API available)
+        setText   : fn(string)   -- đổi text ngay
+        setFormat : fn(function) -- đổi format function
+        setColor  : fn(Color3)   -- đổi màu chữ
+        setSize   : fn(number)   -- đổi cỡ chữ
+        stop      : fn()         -- dừng realtime
+        start     : fn()         -- chạy lại realtime
+        destroy   : fn()         -- xóa hoàn toàn
+    }
+
+    Placeholders:
+        {fps}    → FPS hiện tại (smooth)
+        {ping}   → Ping ms
+        {time}   → HH:MM:SS
+        {player} → tên player
 
     Examples:
-        Ex.applyStyle(icon)
-        Ex.applyStyle(icon, {bgImage = 12345678, bgAlpha = 0.8})
-        Ex.applyStyle(icon, {
-            outerColor = Color3.fromRGB(10,10,20),
-            outerAlpha = 0.1,
-            innerColor = Color3.fromRGB(50,50,70),
-            innerAlpha = 0.3,
+        -- Static
+        Ex.watermark({text = "v1.0 | Script"})
+
+        -- Real-time FPS + time
+        Ex.watermark({
+            text     = "v1.0 | FPS: {fps} | {time}",
+            realtime = true,
+            interval = 1,
         })
-]]
-function Ex.applyStyle(icon, config)
-    config = config or {}
 
-    local outerColor  = config.outerColor  or Color3.fromRGB(12, 12, 16)
-    local outerAlpha  = config.outerAlpha  or 0.15
-    local innerColor  = config.innerColor  or Color3.fromRGB(38, 38, 50)
-    local innerAlpha  = config.innerAlpha  or 0.35
-    local innerPad    = config.innerPad    or 4
-    local innerRadius = config.innerRadius or 8
-    local bgImage     = config.bgImage
-    local bgAlpha     = config.bgAlpha     or 0.75
-    local radius      = config.radius      or 10
-
-    -- Outer widget bg
-    icon:modifyTheme({
-        {"Widget",      "BackgroundColor3",       outerColor},
-        {"Widget",      "BackgroundTransparency", outerAlpha},
-        {"IconCorners", "CornerRadius",           UDim.new(0, radius)},
-        {"IconGradient","Enabled",                false},
-    })
-
-    task.defer(function()
-        local btn = getButton(icon)
-        if not btn then return end
-
-        -- Remove old style elements
-        for _, v in ipairs(btn:GetChildren()) do
-            if v.Name == "InnerBg" or v.Name == "BgImage" then
-                v:Destroy()
-            end
-        end
-
-        -- Optional image background (behind everything)
-        if bgImage then
-            makeImageBg(btn, bgImage, bgAlpha)
-        end
-
-        -- Inner bright background
-        makeInnerBg(btn, {
-            color  = innerColor,
-            alpha  = innerAlpha,
-            radius = innerRadius,
-            pad    = innerPad,
+        -- Custom format (placeholders CŨNG hoạt động trong format fn)
+        local kills = 0
+        local wm = Ex.watermark({
+            realtime = true,
+            format   = function()
+                return string.format("v1.0 | Kills: %d | FPS: {fps}", kills)
+            end,
         })
-    end)
 
-    return icon
-end
-
--- ═══════════════════════════════════════════════════════════
--- [2] WATERMARK — Real-time, không ảnh hưởng icon khác
--- ═══════════════════════════════════════════════════════════
---[[
-    Ex.watermark(config)
-
-    config = {
-        text     : string?    — text tĩnh hoặc có {fps}/{time}/{ping}/{player}
-        imageId  : number?    — asset ID (optional)
-        align    : string?    — "Left"|"Center"|"Right" (default "Right")
-        color    : Color3?    — màu chữ
-        size     : number?    — font size (default 13)
-        realtime : bool?      — tự update
-        interval : number?    — giây giữa update (default 1)
-        format   : function?  — hàm tùy chỉnh trả về string
-        bg       : bool?      — có background không (default false, watermark trong suốt)
-    }
-
-    Returns: { icon, setText, setColor, setSize, setFormat, stop, start, destroy }
+        -- Update runtime
+        wm.setText("v2.0 | Updated!")
+        wm.setColor(Color3.fromRGB(255, 215, 0))
+        wm.stop()
+        wm.start()
+        wm.destroy()
 ]]
 function Ex.watermark(config)
     config = config or {}
+
     local text     = config.text     or ""
+    local formatFn = config.format
     local imageId  = config.imageId
     local align    = config.align    or "Right"
-    local color    = config.color    or Color3.fromRGB(200, 200, 200)
+    local color    = config.color    or Color3.fromRGB(210, 210, 210)
     local size     = config.size     or 13
     local realtime = config.realtime or false
     local interval = config.interval or 1
-    local formatFn = config.format
     local hasBg    = config.bg       or false
 
     local icon = Icon.new()
@@ -224,7 +171,7 @@ function Ex.watermark(config)
 
     if imageId then icon:setImage(imageId) end
 
-    -- Block click interaction
+    -- Block input
     task.defer(function()
         local cr = icon:getInstance("ClickRegion")
         if cr then
@@ -234,50 +181,47 @@ function Ex.watermark(config)
         end
     end)
 
+    -- Style: bg hoặc trong suốt
     if hasBg then
-        -- Watermark với background nhẹ
         icon:modifyTheme({
-            {"Widget",       "BackgroundColor3",       Color3.fromRGB(15, 15, 18)},
-            {"Widget",       "BackgroundTransparency", 0.3},
-            {"IconCorners",  "CornerRadius",           UDim.new(0, 8)},
-            {"IconGradient", "Enabled",                false},
-            {"IconLabel",    "TextColor3",             color},
-            {"IconLabel",    "TextSize",               size},
+            {"Widget",      "BackgroundColor3",       Color3.fromRGB(14, 14, 18)},
+            {"Widget",      "BackgroundTransparency", 0.25},
+            {"IconCorners", "CornerRadius",           UDim.new(0, 8)},
+            {"IconGradient","Enabled",                false},
+            {"IconLabel",   "TextColor3",             color},
+            {"IconLabel",   "TextSize",               size},
         })
     else
-        -- Watermark trong suốt hoàn toàn (chỉ chữ)
+        -- Chỉ chữ, không có background — nhưng không ảnh hưởng icon khác
+        task.defer(function()
+            local btn = _getBtn(icon)
+            if btn then
+                btn.BackgroundTransparency = 1
+                -- Remove gradient nếu có
+                local grad = btn:FindFirstChildOfClass("UIGradient")
+                if grad then grad.Enabled = false end
+            end
+            -- Widget container cũng trong suốt
+            local w = icon.widget
+            if w then w.BackgroundTransparency = 1 end
+        end)
         icon:modifyTheme({
-            {"Widget",       "BackgroundTransparency", 1},
-            {"IconButton",   "BackgroundTransparency", 1},
-            {"IconGradient", "Enabled",                false},
-            {"IconLabel",    "TextColor3",             color},
-            {"IconLabel",    "TextSize",               size},
+            {"IconLabel","TextColor3", color},
+            {"IconLabel","TextSize",   size},
         })
     end
 
-    -- FPS smoother
-    local lastFPS = 60
-    local fpsConn = RunService.RenderStepped:Connect(function(dt)
-        lastFPS = math.floor(0.9 * lastFPS + 0.1 * (1 / dt))
-    end)
-
-    local function resolveFast(str)
-        if not str then return "" end
-        str = str:gsub("{fps}",    tostring(lastFPS))
-        str = str:gsub("{time}",   os.date("%H:%M:%S"))
-        str = str:gsub("{player}", game.Players.LocalPlayer.Name)
-        local ok, ping = pcall(function()
-            return game:GetService("Stats").Network.ServerStatsItem["Data Ping"]:GetValue()
-        end)
-        str = str:gsub("{ping}", ok and tostring(math.floor(ping)) or "?")
-        return str
+    -- Compute label text (resolve placeholders — kể cả output của formatFn)
+    local function computeLabel()
+        local raw = formatFn and formatFn() or text
+        return _resolve(raw)   -- FIX: luôn resolve dù từ format hay text
     end
 
-    -- Initial label
-    icon:setLabel(formatFn and formatFn() or resolveFast(text))
+    -- Set initial
+    icon:setLabel(computeLabel())
 
     -- Realtime loop
-    local running = true
+    local running = false
     local loopThread
 
     local function startLoop()
@@ -286,34 +230,43 @@ function Ex.watermark(config)
             while running do
                 task.wait(interval)
                 if not running then break end
-                icon:setLabel(formatFn and formatFn() or resolveFast(text))
+                icon:setLabel(computeLabel())
             end
         end)
     end
 
     if realtime or formatFn then startLoop() end
 
+    -- Public object
     local wm = {}
     wm.icon = icon
 
-    function wm.setText(t)  text = t; icon:setLabel(resolveFast(t)) end
-    function wm.setFormat(fn) formatFn = fn; icon:setLabel(fn()) end
-    function wm.setColor(c) icon:modifyTheme({{"IconLabel","TextColor3",c}}) end
-    function wm.setSize(s)  icon:modifyTheme({{"IconLabel","TextSize",s}}) end
+    function wm.setText(t)
+        text = t
+        formatFn = nil  -- clear format fn khi set text
+        icon:setLabel(_resolve(t))
+    end
+
+    function wm.setFormat(fn)
+        formatFn = fn
+        icon:setLabel(computeLabel())
+    end
+
+    function wm.setColor(c)
+        icon:modifyTheme({{"IconLabel","TextColor3",c}})
+    end
+
+    function wm.setSize(s)
+        icon:modifyTheme({{"IconLabel","TextSize",s}})
+    end
 
     function wm.stop()
         running = false
-        pcall(function() fpsConn:Disconnect() end)
         if loopThread then pcall(task.cancel, loopThread) end
     end
 
     function wm.start()
-        if not running then
-            fpsConn = RunService.RenderStepped:Connect(function(dt)
-                lastFPS = math.floor(0.9 * lastFPS + 0.1 * (1 / dt))
-            end)
-            startLoop()
-        end
+        if not running then startLoop() end
     end
 
     function wm.destroy()
@@ -325,80 +278,194 @@ function Ex.watermark(config)
 end
 
 -- ═══════════════════════════════════════════════════════════
+-- [2] APPLY STYLE — outer bg + inner bright button
+-- ═══════════════════════════════════════════════════════════
+--[[
+    Ex.applyStyle(icon, config?) → icon
+
+    Áp dụng visual đẹp:
+    - Outer: frame tối mờ
+    - Inner: frame nhỏ hơn sáng hơn tạo hiệu ứng "nút nổi"
+    - Optional: ảnh nền mờ phía sau
+
+    config = {
+        outerColor  : Color3?   default (12,12,16)
+        outerAlpha  : number?   default 0.12
+        innerColor  : Color3?   default (42,42,55)
+        innerAlpha  : number?   default 0.30
+        innerPad    : number?   default 5
+        innerRadius : number?   default 8
+        radius      : number?   default 10
+        bgImage     : number?   asset ID (optional)
+        bgAlpha     : number?   default 0.78
+    }
+]]
+function Ex.applyStyle(icon, config)
+    config = config or {}
+    local outerColor  = config.outerColor  or Color3.fromRGB(12, 12, 16)
+    local outerAlpha  = config.outerAlpha  or 0.12
+    local innerColor  = config.innerColor  or Color3.fromRGB(42, 42, 55)
+    local innerAlpha  = config.innerAlpha  or 0.30
+    local innerPad    = config.innerPad    or 5
+    local innerRadius = config.innerRadius or 8
+    local radius      = config.radius      or 10
+    local bgImage     = config.bgImage
+    local bgAlpha     = config.bgAlpha     or 0.78
+
+    icon:modifyTheme({
+        {"Widget",      "BackgroundColor3",       outerColor},
+        {"Widget",      "BackgroundTransparency", outerAlpha},
+        {"IconCorners", "CornerRadius",           UDim.new(0, radius)},
+        {"IconGradient","Enabled",                false},
+    })
+
+    task.defer(function()
+        local btn = _getBtn(icon)
+        if not btn then return end
+
+        -- Clean old
+        for _, v in ipairs(btn:GetChildren()) do
+            if v.Name == "ExInnerBg" or v.Name == "ExBgImage" then
+                v:Destroy()
+            end
+        end
+
+        -- Background image (lowest layer)
+        if bgImage then
+            local img = Instance.new("ImageLabel")
+            img.Name                   = "ExBgImage"
+            img.BackgroundTransparency = 1
+            img.Image                  = "rbxassetid://" .. tostring(bgImage)
+            img.ImageTransparency      = bgAlpha
+            img.ScaleType              = Enum.ScaleType.Crop
+            img.Size                   = UDim2.new(1, 0, 1, 0)
+            img.ZIndex                 = btn.ZIndex
+            img.AnchorPoint            = Vector2.new(0.5, 0.5)
+            img.Position               = UDim2.new(0.5, 0, 0.5, 0)
+            Instance.new("UICorner", img).CornerRadius = UDim.new(0, radius)
+            img.Parent = btn
+        end
+
+        -- Inner bright frame (nút nổi)
+        local inner = Instance.new("Frame")
+        inner.Name                   = "ExInnerBg"
+        inner.BackgroundColor3       = innerColor
+        inner.BackgroundTransparency = innerAlpha
+        inner.BorderSizePixel        = 0
+        inner.ZIndex                 = btn.ZIndex + 1
+        inner.AnchorPoint            = Vector2.new(0.5, 0.5)
+        inner.Position               = UDim2.new(0.5, 0, 0.5, 0)
+        inner.Size                   = UDim2.new(1, -innerPad*2, 1, -innerPad*2)
+
+        local ic = Instance.new("UICorner")
+        ic.CornerRadius = UDim.new(0, innerRadius)
+        ic.Parent = inner
+
+        -- Inner subtle gradient
+        local g = Instance.new("UIGradient")
+        g.Color = ColorSequence.new({
+            ColorSequenceKeypoint.new(0,   Color3.fromRGB(80, 80, 100)),
+            ColorSequenceKeypoint.new(1,   Color3.fromRGB(18, 18, 26)),
+        })
+        g.Rotation    = 90
+        g.Transparency = NumberSequence.new({
+            NumberSequenceKeypoint.new(0,   0.55),
+            NumberSequenceKeypoint.new(1,   0.72),
+        })
+        g.Parent = inner
+        inner.Parent = btn
+    end)
+
+    return icon
+end
+
+-- ═══════════════════════════════════════════════════════════
 -- [3] HIGHLIGHT
 -- ═══════════════════════════════════════════════════════════
 --[[
-    Ex.highlight(icon, config?)
-    config = { style, color, thickness, animated }
-    styles: "border" | "glow" | "premium" | "accent"
+    Ex.highlight(icon, config?) → icon
     Ex.removeHighlight(icon)
+
+    config = {
+        style     : "border"|"glow"|"premium"|"accent"  (default "border")
+        color     : Color3   (default trắng)
+        thickness : number   (default 2)
+        animated  : bool     (default false)
+    }
 ]]
 function Ex.highlight(icon, config)
-    config = config or {}
+    config    = config or {}
     local style     = config.style     or "border"
     local color     = config.color     or Color3.fromRGB(255, 255, 255)
     local thickness = config.thickness or 2
     local animated  = config.animated  or false
 
     task.defer(function()
-        local btn = getButton(icon)
+        local btn = _getBtn(icon)
         if not btn then return end
 
+        -- Remove old
         for _, v in ipairs(btn:GetChildren()) do
-            if v.Name:find("HighlightStroke") or v.Name == "HighlightGradient" then
-                v:Destroy()
-            end
+            if v.Name:find("_HLStroke") or v.Name == "_HLGrad" then v:Destroy() end
         end
 
         if style == "border" then
-            local s = Instance.new("UIStroke")
-            s.Name = "HighlightStroke"
+            local s          = Instance.new("UIStroke")
+            s.Name           = "_HLStroke"
             s.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-            s.Color = color; s.Thickness = thickness; s.Transparency = 0
-            s.Parent = btn
+            s.Color           = color
+            s.Thickness       = thickness
+            s.Transparency    = 0
+            s.Parent          = btn
 
         elseif style == "glow" then
-            local outer = Instance.new("UIStroke")
-            outer.Name = "HighlightStrokeOuter"
-            outer.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-            outer.Color = color; outer.Thickness = thickness + 2
-            outer.Transparency = 0.3; outer.Parent = btn
+            local so         = Instance.new("UIStroke")
+            so.Name          = "_HLStrokeOuter"
+            so.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+            so.Color          = color
+            so.Thickness      = thickness + 2
+            so.Transparency   = 0.35
+            so.Parent         = btn
 
-            local inner = Instance.new("UIStroke")
-            inner.Name = "HighlightStroke"
-            inner.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-            inner.Color = color; inner.Thickness = thickness
-            inner.Transparency = 0; inner.Parent = btn
+            local si         = Instance.new("UIStroke")
+            si.Name          = "_HLStroke"
+            si.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+            si.Color          = color
+            si.Thickness      = thickness
+            si.Transparency   = 0
+            si.Parent         = btn
 
             if animated then
                 task.spawn(function()
                     local t = 0
                     while btn and btn.Parent do
                         t += task.wait(0.05)
-                        outer.Transparency = 0.3 + ((math.sin(t * 2) + 1) / 2) * 0.5
+                        so.Transparency = 0.3 + ((math.sin(t * 2) + 1) * 0.5) * 0.45
                     end
                 end)
             end
 
         elseif style == "premium" then
-            local s = Instance.new("UIStroke")
-            s.Name = "HighlightStroke"
+            local s          = Instance.new("UIStroke")
+            s.Name           = "_HLStroke"
             s.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-            s.Color = Color3.fromRGB(255, 215, 0)
-            s.Thickness = thickness; s.Transparency = 0; s.Parent = btn
+            s.Color           = Color3.fromRGB(255, 215, 0)
+            s.Thickness       = thickness
+            s.Transparency    = 0
+            s.Parent          = btn
 
-            local g = Instance.new("UIGradient")
-            g.Name = "HighlightGradient"
-            g.Color = ColorSequence.new({
-                ColorSequenceKeypoint.new(0,   Color3.fromRGB(255, 215, 0)),
-                ColorSequenceKeypoint.new(0.5, Color3.fromRGB(255, 160, 0)),
-                ColorSequenceKeypoint.new(1,   Color3.fromRGB(255, 215, 0)),
+            local g     = Instance.new("UIGradient")
+            g.Name      = "_HLGrad"
+            g.Color     = ColorSequence.new({
+                ColorSequenceKeypoint.new(0,   Color3.fromRGB(255, 220, 60)),
+                ColorSequenceKeypoint.new(0.5, Color3.fromRGB(255, 150, 0)),
+                ColorSequenceKeypoint.new(1,   Color3.fromRGB(255, 220, 60)),
             })
-            g.Rotation = 45
+            g.Rotation   = 45
             g.Transparency = NumberSequence.new({
-                NumberSequenceKeypoint.new(0,   0.7),
-                NumberSequenceKeypoint.new(0.5, 0.5),
-                NumberSequenceKeypoint.new(1,   0.7),
+                NumberSequenceKeypoint.new(0,   0.65),
+                NumberSequenceKeypoint.new(0.5, 0.45),
+                NumberSequenceKeypoint.new(1,   0.65),
             })
             g.Parent = btn
 
@@ -412,24 +479,26 @@ function Ex.highlight(icon, config)
             end
 
             icon:modifyTheme({
-                {"Widget", "BackgroundColor3",       Color3.fromRGB(30, 22, 5)},
-                {"Widget", "BackgroundTransparency", 0.1},
+                {"Widget","BackgroundColor3",       Color3.fromRGB(32, 22, 4)},
+                {"Widget","BackgroundTransparency", 0.1},
             })
 
         elseif style == "accent" then
-            local s = Instance.new("UIStroke")
-            s.Name = "HighlightStroke"
+            local s          = Instance.new("UIStroke")
+            s.Name           = "_HLStroke"
             s.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-            s.Color = color; s.Thickness = thickness
-            s.Transparency = 0; s.Parent = btn
+            s.Color           = color
+            s.Thickness       = thickness
+            s.Transparency    = 0
+            s.Parent          = btn
+
+            local r = math.clamp(math.round(color.R * 22), 6, 45)
+            local g2 = math.clamp(math.round(color.G * 22), 6, 45)
+            local b  = math.clamp(math.round(color.B * 22), 6, 45)
 
             icon:modifyTheme({
-                {"Widget", "BackgroundColor3", Color3.fromRGB(
-                    math.clamp(math.round(color.R * 25), 8, 50),
-                    math.clamp(math.round(color.G * 25), 8, 50),
-                    math.clamp(math.round(color.B * 25), 8, 50)
-                )},
-                {"Widget", "BackgroundTransparency", 0.1},
+                {"Widget","BackgroundColor3",       Color3.fromRGB(r, g2, b)},
+                {"Widget","BackgroundTransparency", 0.1},
             })
         end
     end)
@@ -439,12 +508,10 @@ end
 
 function Ex.removeHighlight(icon)
     task.defer(function()
-        local btn = getButton(icon)
+        local btn = _getBtn(icon)
         if not btn then return end
         for _, v in ipairs(btn:GetChildren()) do
-            if v.Name:find("HighlightStroke") or v.Name == "HighlightGradient" then
-                v:Destroy()
-            end
+            if v.Name:find("_HLStroke") or v.Name == "_HLGrad" then v:Destroy() end
         end
     end)
 end
@@ -452,8 +519,28 @@ end
 -- ═══════════════════════════════════════════════════════════
 -- [4] MENU + DROPDOWN COMBO
 -- ═══════════════════════════════════════════════════════════
+--[[
+    Ex.menuWithDropdowns(config) → Icon
+
+    config = {
+        label        : string
+        align        : "Left"|"Center"|"Right"  (default "Left")
+        maxMenuIcons : number  (default 4)
+        highlight    : table?  config cho Ex.highlight
+        items : array of {
+            label    : string
+            image    : number|string?
+            onSelect : function?       -- nút đơn
+            dropdown : {               -- nếu có → mở dropdown dọc
+                maxIcons : number?     (default 5)
+                minWidth : number?     (default 160)
+                items    : Icon[]
+            }?
+        }
+    }
+]]
 function Ex.menuWithDropdowns(config)
-    config = config or {}
+    config    = config or {}
     local label   = config.label        or "Menu"
     local align   = config.align        or "Left"
     local maxMenu = config.maxMenuIcons or 4
@@ -480,50 +567,53 @@ function Ex.menuWithDropdowns(config)
         :align(align)
         :modifyTheme({
             {"Widget",      "BackgroundColor3",       Color3.fromRGB(12, 12, 16)},
-            {"Widget",      "BackgroundTransparency", 0.12},
+            {"Widget",      "BackgroundTransparency", 0.1},
             {"IconCorners", "CornerRadius",           UDim.new(0, 10)},
             {"IconGradient","Enabled",                false},
             {"Menu",        "MaxIcons",               maxMenu},
         })
         :modifyChildTheme({
             {"Widget",      "BackgroundColor3",       Color3.fromRGB(18, 18, 24)},
-            {"Widget",      "BackgroundTransparency", 0.12},
+            {"Widget",      "BackgroundTransparency", 0.1},
             {"IconCorners", "CornerRadius",           UDim.new(0, 8)},
             {"IconGradient","Enabled",                false},
         })
         :setMenu(menuItems)
 
     if hl then Ex.highlight(parent, hl) end
-
     return parent
 end
 
 -- ═══════════════════════════════════════════════════════════
--- [5] NATIVE OVERRIDE
--- ═══════════════════════════════════════════════════════════
-function Ex.setNativeOverride(mode)
-    if mode == "hide" then
-        local ok, err = pcall(function()
-            game:GetService("StarterGui"):SetCore("TopbarEnabled", false)
-        end)
-        if not ok then warn("[TopbarPlusEx] setNativeOverride hide failed:", err) end
-    end
-end
-
--- ═══════════════════════════════════════════════════════════
--- [6] SEPARATOR
+-- [5] SEPARATOR
 -- ═══════════════════════════════════════════════════════════
 function Ex.separator(width, align)
-    return Icon.new()
-        :setWidth(width or 10)
+    local icon = Icon.new()
+        :setWidth(width or 8)
         :lock()
         :disableStateOverlay(true)
         :align(align or "Left")
-        :modifyTheme({
-            {"Widget",      "BackgroundTransparency", 1},
-            {"IconButton",  "BackgroundTransparency", 1},
-            {"IconGradient","Enabled",                false},
-        })
+
+    task.defer(function()
+        local btn = _getBtn(icon)
+        if btn then btn.BackgroundTransparency = 1 end
+        local w = icon.widget
+        if w then w.BackgroundTransparency = 1 end
+    end)
+
+    icon:modifyTheme({{"IconGradient","Enabled",false}})
+    return icon
+end
+
+-- ═══════════════════════════════════════════════════════════
+-- [6] NATIVE OVERRIDE
+-- ═══════════════════════════════════════════════════════════
+function Ex.setNativeOverride(mode)
+    if mode == "hide" then
+        local ok, err = pcall(StarterGui.SetCore, StarterGui, "TopbarEnabled", false)
+        if not ok then warn("[TopbarPlusEx] hide failed:", err) end
+    end
+    -- "dodge" = handled by TopbarPlus automatically
 end
 
 -- ─────────────────────────────────────────────────────────────
@@ -531,54 +621,53 @@ end
 -- ─────────────────────────────────────────────────────────────
 --[[
     Dùng với:
-        Icon.modifyBaseTheme(tpx.Presets.dark)
-        icon:modifyTheme(tpx.Presets.glass)
-
-    dark    — đen tối, bo góc 10
-    light   — trắng sáng
-    glass   — trong mờ
-    gold    — vàng
-    deep    — xanh đen đậm
-    neon    — đen + text neon xanh
+        Icon.modifyBaseTheme(Pre.dark)   -- áp cho tất cả
+        icon:modifyTheme(Pre.glass)      -- áp cho 1 icon
 ]]
 local Presets = {
+    -- Đen tối, rounded, sạch sẽ
     dark = {
-        {"Widget",      "BackgroundColor3",       Color3.fromRGB(15, 15, 18)},
-        {"Widget",      "BackgroundTransparency", 0.15},
+        {"Widget",      "BackgroundColor3",       Color3.fromRGB(14, 14, 18)},
+        {"Widget",      "BackgroundTransparency", 0.12},
         {"IconCorners", "CornerRadius",           UDim.new(0, 10)},
         {"IconGradient","Enabled",                false},
-        {"IconLabel",   "TextColor3",             Color3.fromRGB(225, 225, 225)},
+        {"IconLabel",   "TextColor3",             Color3.fromRGB(228, 228, 228)},
     },
+    -- Trắng sáng
     light = {
         {"Widget",      "BackgroundColor3",       Color3.fromRGB(235, 235, 240)},
         {"Widget",      "BackgroundTransparency", 0.05},
         {"IconCorners", "CornerRadius",           UDim.new(0, 10)},
         {"IconGradient","Enabled",                false},
-        {"IconLabel",   "TextColor3",             Color3.fromRGB(30, 30, 30)},
+        {"IconLabel",   "TextColor3",             Color3.fromRGB(25, 25, 25)},
     },
+    -- Kính mờ
     glass = {
-        {"Widget",      "BackgroundColor3",       Color3.fromRGB(200, 200, 220)},
-        {"Widget",      "BackgroundTransparency", 0.6},
+        {"Widget",      "BackgroundColor3",       Color3.fromRGB(200, 210, 230)},
+        {"Widget",      "BackgroundTransparency", 0.58},
         {"IconCorners", "CornerRadius",           UDim.new(0, 12)},
         {"IconGradient","Enabled",                false},
         {"IconLabel",   "TextColor3",             Color3.fromRGB(255, 255, 255)},
     },
+    -- Vàng premium
     gold = {
-        {"Widget",      "BackgroundColor3",       Color3.fromRGB(35, 25, 5)},
+        {"Widget",      "BackgroundColor3",       Color3.fromRGB(32, 22, 4)},
         {"Widget",      "BackgroundTransparency", 0.1},
         {"IconCorners", "CornerRadius",           UDim.new(0, 10)},
         {"IconGradient","Enabled",                false},
         {"IconLabel",   "TextColor3",             Color3.fromRGB(255, 215, 0)},
     },
+    -- Xanh đen đậm
     deep = {
-        {"Widget",      "BackgroundColor3",       Color3.fromRGB(8, 12, 22)},
-        {"Widget",      "BackgroundTransparency", 0.1},
+        {"Widget",      "BackgroundColor3",       Color3.fromRGB(6, 10, 20)},
+        {"Widget",      "BackgroundTransparency", 0.08},
         {"IconCorners", "CornerRadius",           UDim.new(0, 10)},
         {"IconGradient","Enabled",                false},
-        {"IconLabel",   "TextColor3",             Color3.fromRGB(180, 210, 255)},
+        {"IconLabel",   "TextColor3",             Color3.fromRGB(170, 205, 255)},
     },
+    -- Đen + text neon xanh
     neon = {
-        {"Widget",      "BackgroundColor3",       Color3.fromRGB(5, 5, 5)},
+        {"Widget",      "BackgroundColor3",       Color3.fromRGB(4, 4, 6)},
         {"Widget",      "BackgroundTransparency", 0.05},
         {"IconCorners", "CornerRadius",           UDim.new(0, 10)},
         {"IconGradient","Enabled",                false},
@@ -586,4 +675,12 @@ local Presets = {
     },
 }
 
-return { Icon = Icon, Ex = Ex, Presets = Presets }
+-- ─────────────────────────────────────────────────────────────
+-- RETURN
+-- ─────────────────────────────────────────────────────────────
+return {
+    Icon     = Icon,
+    Ex       = Ex,
+    Presets  = Presets,
+    _version = "1.4",
+}
