@@ -44,10 +44,9 @@ local LocalPlayer  = Players.LocalPlayer
 Icon.modifyBaseTheme({
     {"Widget",      "BackgroundColor3",       Color3.fromRGB(14, 14, 18)},
     {"Widget",      "BackgroundTransparency", 0.12},
-    {"IconCorners", "CornerRadius",           UDim.new(0, 10)},
-    {"IconGradient","Enabled",                false},
+    {"IconGradient","Enabled",                true},
     {"IconLabel",   "TextColor3",             Color3.fromRGB(228, 228, 228)},
-    {"IconLabel",   "TextSize",               14},
+    {"IconLabel",   "TextSize",               17},
 })
 
 -- ─────────────────────────────────────────────────────────────
